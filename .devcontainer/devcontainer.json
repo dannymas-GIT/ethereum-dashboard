@@ -1,0 +1,179 @@
+# .devcontainer/devcontainer.json
+{
+    "name": "Ethereum Dashboard Dev",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                "bradlc.vscode-tailwindcss",
+                "mikestead.dotenv"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/usr/local/bin/python",
+                "python.linting.enabled": true,
+                "python.linting.pylintEnabled": true,
+                "editor.formatOnSave": true,
+                "editor.defaultFormatter": "esbenp.prettier-vscode"
+            }
+        }
+    },
+    "forwardPorts": [3000, 8000],
+    "postCreateCommand": "pip install -r requirements.txt && pre-commit install",
+    "remoteUser": "vscode"
+}
+
+# .devcontainer/Dockerfile
+FROM python:3.11-slim as base
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    POETRY_VERSION=1.6.1 \
+    POETRY_HOME="/opt/poetry" \
+    POETRY_VIRTUALENVS_IN_PROJECT=true \
+    POETRY_NO_INTERACTION=1 \
+    VENV_PATH="/opt/pysetup/.venv"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Poetry
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="$POETRY_HOME/bin:$PATH"
+
+# Create and switch to non-root user
+RUN useradd -ms /bin/bash vscode
+USER vscode
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy only dependencies files first
+COPY --chown=vscode:vscode pyproject.toml poetry.lock* ./
+
+# Install dependencies
+RUN poetry install --no-root --no-dev
+
+# Development stage
+FROM base as development
+
+# Install development dependencies
+RUN poetry install
+
+# Production stage
+FROM base as production
+
+# Copy project files
+COPY --chown=vscode:vscode . .
+
+# Install production dependencies only
+RUN poetry install --no-dev
+
+# docker-compose.yml
+version: '3.8'
+
+services:
+  app:
+    build: 
+      context: .
+      target: development
+    volumes:
+      - .:/workspace:cached
+    ports:
+      - "8000:8000"
+      - "3000:3000"
+    command: sleep infinity
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+# pyproject.toml
+[tool.poetry]
+name = "ethereum-dashboard"
+version = "0.1.0"
+description = "Ethereum Dashboard Application"
+authors = ["Your Name <your.email@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.68.0"
+uvicorn = "^0.15.0"
+web3 = "^6.0.0"
+redis = "^4.0.0"
+sqlalchemy = "^1.4.0"
+alembic = "^1.7.0"
+python-dotenv = "^0.19.0"
+pydantic = "^1.8.2"
+
+[tool.poetry.dev-dependencies]
+pytest = "^6.2.5"
+black = "^21.9b0"
+isort = "^5.9.3"
+flake8 = "^3.9.2"
+mypy = "^0.910"
+pre-commit = "^2.15.0"
+
+# .dockerignore
+.git
+.gitignore
+.env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.pytest_cache/
+.env.example
+node_modules/
+.vscode/
+
+# .pre-commit-config.yaml
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+    -   id: check-added-large-files
+
+-   repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+    -   id: black
+
+-   repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+    -   id: isort
+
+-   repo: https://github.com/pycqa/flake8
+    rev: 6.0.0
+    hooks:
+    -   id: flake8
